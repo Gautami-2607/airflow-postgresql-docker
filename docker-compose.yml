@@ -1,0 +1,70 @@
+version: '3.7'
+services:
+    postgres:
+        image: postgres:9.6
+        environment:
+            - POSTGRES_USER=airflow
+            - POSTGRES_PASSWORD=airflow
+            - POSTGRES_DB=airflow
+        logging:
+            options:
+                max-size: 10m
+                max-file: "3"
+
+    db:
+        image: postgres:13.0-alpine
+        restart: always
+        environment:
+            POSTGRES_DB: postgres
+            POSTGRES_USER: admin_user
+            POSTGRES_PASSWORD: secret_password
+            POSTGRES_HOST_AUTH_METHOD: trust
+            # PGDATA: /var/lib/postgresql/data
+        volumes:
+            - db-data:/opt/postgres/data
+        ports:
+            - "5439:5432"
+         
+    pgadmin:
+        image: dpage/pgadmin4:4.27
+        restart: always
+        environment:
+            PGADMIN_DEFAULT_EMAIL: admin@test.com
+            PGADMIN_DEFAULT_PASSWORD: test
+            PGADMIN_LISTEN_PORT: 1111
+        ports:
+        - "1111:1111"
+        volumes:
+            - pgadmin-data:/opt/pgadmin
+        links:
+            - "db:pgsql-server"
+
+    webserver:
+        image: l/custom_airflow:1.5
+        container_name: l_custom_airflow
+        restart: always
+        depends_on:
+            - postgres
+        environment:
+            - LOAD_EX=n
+            - EXECUTOR=Local
+        logging:
+            options:
+                max-size: 10m
+                max-file: "3"
+        volumes:
+            - ./dags:/opt/airflow/dags
+            - ./db-data:/opt/airflow/db-data
+            - ./pgadmin-data:/opt/airflow/pgadmin-data
+        ports:
+            - "8080:8080"
+        command: webserver
+        healthcheck:
+            test: ["CMD-SHELL", "[ -f /opt/airflow/airflow-webserver.pid ]"]
+            interval: 30s
+            timeout: 30s
+            retries: 3
+
+volumes:
+    db-data: 
+    pgadmin-data:            
