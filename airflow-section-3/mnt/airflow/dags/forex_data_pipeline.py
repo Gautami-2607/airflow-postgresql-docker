@@ -4,6 +4,8 @@ from airflow.sensors.filesystem import FileSensor
 from airflow.operators.python import PythonOperator
 # from airflow.providers.postgres.operators.postgres_sql import PostgresSQLExecuteOperator
 from airflow.providers.postgres.operators.postgres import PostgresOperator
+from airflow.hooks.base_hook import BaseHook
+from sqlalchemy import create_engine
 import pandas as pd
 
 from datetime import datetime, timedelta
@@ -20,13 +22,18 @@ def insert_csv_to_postgres(csv_file_path, table_name, postgres_conn_id):
     # Read the CSV file using pandas
     df = pd.read_csv(csv_file_path)
 
+    # Fetch the PostgreSQL connection parameters from Airflow Connections
+    conn_params = BaseHook.get_connection(postgres_conn_id)
+    conn_url = f"postgresql+psycopg2://{conn_params.login}:{conn_params.password}@{conn_params.host}:{conn_params.port}/{conn_params.schema}"
+
     # Create a SQLAlchemy engine for PostgreSQL
-    engine = create_engine(f"postgresql+psycopg2://{postgres_conn_id}")
+    engine = create_engine(conn_url)
 
     # Insert the data into the PostgreSQL table
     df.to_sql(table_name, engine, if_exists='replace', index=False)
 
     return f"Data from {csv_file_path} inserted into {table_name}"
+
 
 
 def create_table_from_csv(csv_file_path, table_name):
