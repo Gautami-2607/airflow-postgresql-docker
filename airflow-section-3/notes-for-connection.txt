@@ -1,23 +1,19 @@
-airflow connections [-h] [-l] [-a] [-d] [--conn_id CONN_ID]
-                    [--conn_uri CONN_URI] [--conn_extra CONN_EXTRA]
-                    [--conn_type CONN_TYPE] [--conn_host CONN_HOST]
-                    [--conn_login CONN_LOGIN] [--conn_password CONN_PASSWORD]
-                    [--conn_schema CONN_SCHEMA] [--conn_port CONN_PORT]
+airflow connections [-h] [-l] [-a] [-d] [--conn-id CONN_ID]
+                    [--conn-uri CONN_URI] [--conn-extra CONN_EXTRA]
+                    [--conn-type CONN_TYPE] [--conn-host CONN_HOST]
+                    [--conn-login CONN_LOGIN] [--conn-password CONN_PASSWORD]
+                    [--conn-schema CONN_SCHEMA] [--conn-port CONN_PORT]
 
-airflow connections -a --conn_id forex_api \
-                    --conn_type http \ 
-                    --conn_host https://gist.github.com/ 
+airflow connections add forex_api --conn-type=http --conn-host=https://gist.github.com/ 
 
-airflow connections -a --conn_id=forex_api_2 --conn_type=http --conn_host=https://gist.github.com/
+airflow connections add forex_api_2 --conn_type=http --conn_host=https://gist.github.com/
 
-airflow connections --conn_id forex_path \
-                    --conn_type file \
-                    --conn_extra {"path": "/opt/airflow/dags/files"}   
+airflow connections add forex_path --conn-type=file --conn-extra={"path": "/opt/airflow/dags/files"}   
 
-airflow connections --conn_id postgres_connection_id \
-                    --conn_type postgres \
-                    --conn_host postgres \
-                    --conn_login airflow \
-                    --conn_password airflow \
-                    --conn_schema airflow_db
-                    --conn_port 5432
+airflow connections add postgres_connection_id \
+                    --conn-type=postgres \
+                    --conn-host=postgres \
+                    --conn-login=airflow \
+                    --conn-password=airflow \
+                    --conn-schema=airflow_db
+                    --conn-port=5432

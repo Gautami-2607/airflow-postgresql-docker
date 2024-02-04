@@ -41,9 +41,9 @@ RUN apt-get update -y && \
 # RUN pip install --upgrade "pip==23.0.0" && \
 RUN useradd -ms /bin/bash -d ${AIRFLOW_HOME} airflow && \
     pip install apache-airflow==${AIRFLOW_VERSION} --constraint https://raw.githubusercontent.com/apache/airflow/constraints-2.6.0/constraints-3.7.txt && \
-    pip install apache-airflow-providers-apache-hdfs==3.2.1 && \
-    pip install apache-airflow-providers-apache-hive==6.0.0 && \
-    pip install apache-airflow-providers-apache-spark==4.0.1 && \
+    # pip install apache-airflow-providers-apache-hdfs==3.2.1 && \
+    # pip install apache-airflow-providers-apache-hive==6.0.0 && \
+    # pip install apache-airflow-providers-apache-spark==4.0.1 && \
     pip install apache-airflow-providers-http==4.3.0 && \
     pip install apache-airflow-providers-postgres==5.4.0 && \
     pip install numpy==1.21.6 && \
