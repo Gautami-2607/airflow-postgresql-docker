@@ -129,4 +129,62 @@ with DAG("forex_data_pipeline",
                 provide_context=True,
             )
 
-            is_forex_rates_available >> is_forex_currencies_file_available >> load_csv_task >> postgres_task >> insert_csv_task
+            is_forex_rates_available >> is_forex_currencies_file_available >> load_csv_task >> postgres_task >> insert_csv_task 
+
+
+#--------------------------------------------------------------------------------------------------------------------------------------------
+
+
+with DAG("forex_data_pipeline_for_email", 
+            start_date = datetime(2021,1,1), 
+            schedule_interval="@daily",
+            default_args = default_args,
+            catchup = False,
+            ) as dag:
+            
+            # is_forex_rates_available = HttpSensor(
+            #     task_id = "is_forex_rates_available",
+            #     http_conn_id = "forex_api",
+            #     endpoint="marclamberti/f45f872dea4dfd3eaa015a4a1af4b39b",
+            #     response_check = lambda response: "rates" in response.text,
+            #     poke_interval=5,
+            #     timeout=20
+            # )
+
+            is_forex_currencies_file_available = FileSensor(
+            task_id="is_forex_currencies_file_available",
+            fs_conn_id="forex_path",
+            filepath="CK_daily_status.csv",
+            poke_interval=5,
+            timeout=60  # Adjust the timeout as needed
+        )
+
+            load_csv_task = PythonOperator(
+            task_id="load_csv_to_postgres_task",
+            python_callable=create_table_from_csv,  # Pass the function name as a reference
+            op_kwargs={
+                "csv_file_path": "/opt/airflow/dags/files/CK_daily_status.csv",
+                "table_name": "CK_daily_status_table"
+            },
+            provide_context=True,  
+        )
+
+            postgres_task = PostgresOperator(
+            task_id='postgres_task',
+            sql="{{ task_instance.xcom_pull(task_ids='load_csv_to_postgres_task')['create_table_query'] }}",
+            postgres_conn_id='postgres_connection_id',
+        )
+
+
+            insert_csv_task = PythonOperator(
+                task_id="insert_csv_to_postgres_task",
+                python_callable=insert_csv_to_postgres,
+                op_kwargs={
+                    "csv_file_path": "/opt/airflow/dags/files/CK_daily_status.csv",
+                    "table_name": "CK_daily_status_table",
+                    "postgres_conn_id": "postgres_connection_id",
+                },
+                provide_context=True,
+            )
+
+            is_forex_currencies_file_available >> load_csv_task >> postgres_task >> insert_csv_task
