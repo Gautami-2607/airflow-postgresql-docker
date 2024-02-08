@@ -46,7 +46,8 @@ RUN useradd -ms /bin/bash -d ${AIRFLOW_HOME} airflow && \
     pip install numpy==1.21.6 && \
     pip install pandas==1.3.5 && \
     pip install google-api-python-client==1.12.11 && \
-    pip install google-auth-oauthlib==2.1.0
+    pip install google-auth-oauthlib==0.8.0 && \
+    pip install google-auth==2.17.3 
 
 # Copy the airflow.cfg file (config)
 #COPY ./config/airflow.cfg ${AIRFLOW_HOME}/airflow.cfg
@@ -71,5 +72,3 @@ EXPOSE 8080
 
 # Execute start-airflow.sh
 CMD [ "./start-airflow.sh" ]
-
-    

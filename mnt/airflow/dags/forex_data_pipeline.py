@@ -11,15 +11,17 @@ import csv
 import requests
 import json
 from googleapiclient.discovery import build
-from google.oauth2.credentials import Credentials
+# from google.oauth2.credentials import Credentials
+from google.auth import load_credentials_from_file
 import numpy as np
 import pandas as pd
+import os 
 
 SPREADSHEET_ID = "1WwGBizOkkSdt6lqSXBv9x1CD1OqaTinrHLgoUQpvs88"
 WORKSHEET_ID = 1
 
 # Replace with the path to your service account JSON key file
-CREDENTIALS_FILE = "/cloudkarya-internship-1c013aa63f5f.json"
+CREDENTIALS_FILE = "cloudkarya-internship-1c013aa63f5f.json"
 
 
 
@@ -133,19 +135,43 @@ with DAG("forex_data_pipeline",
 #--------------------------------------------------------------------------------------------------------------------------------------------
 
 def download_sheet_data():
-        # Authenticate with service account
-        scopes = ['https://www.googleapis.com/auth/spreadsheets.readonly']
-        credentials = ServiceAccountCredentials.from_json_keyfile_name(CREDENTIALS_FILE, scopes)
-        print("credentials",credentials)
-        service = build('sheets', 'v4', credentials=credentials)
+    """Authenticates with a service account and downloads data from a Google Sheet."""
 
-        # Read data from the specified sheet
-        sheet = service.spreadsheets().values().get(spreadsheetId=SPREADSHEET_ID
-                                                    , range=f'Sheet{WORKSHEET_ID}'
-                                                    ).execute()
-        data = sheet.get('values', [])
-        df = pd.DataFrame(data)
-        print(df.head())
+    # Authenticate with service account
+    scopes = ['https://www.googleapis.com/auth/spreadsheets.readonly']
+    # service_account_file = os.path.join(os.environ['AIRFLOW_HOME'], CREDENTIALS_FILE)
+    service_account_file = '/opt/airflow/dags/cloudkarya-internship-1c013aa63f5f.json'
+
+    # Read service account information and create credentials
+    with open(service_account_file) as f:
+        service_account_info = json.load(f)
+    # credentials, project_id = Credentials.from_service_account_file(
+    #     service_account_file, scopes=scopes
+    # )
+    credentials, project_id = load_credentials_from_file(
+        service_account_file, scopes=scopes
+    )
+
+    # Print credentials for debugging (optional)
+    print("credentials", credentials)
+
+    # Build the Google Sheets API service
+    service = build('sheets', 'v4', credentials=credentials)
+
+    # Read data from the specified sheet
+    sheet = service.spreadsheets().values().get(
+        spreadsheetId=SPREADSHEET_ID,
+        range=f'Sheet{WORKSHEET_ID}'
+    ).execute()
+
+    # Extract data and create Pandas DataFrame
+    data = sheet.get('values', [])
+    df = pd.DataFrame(data)
+
+    # Print the first few rows for debugging (optional)
+    print(df.head())
+    print(df.shape)
+    print(df.isna().sum())
 
 
 with DAG("forex_data_pipeline_for_email", 
@@ -160,9 +186,7 @@ with DAG("forex_data_pipeline_for_email",
             python_callable=download_sheet_data
         )
 
-
         download_task
-
     
 
 # -----------------------------------------------------------------------------------------------------------------------
@@ -203,5 +227,3 @@ with DAG("forex_data_pipeline_for_email",
         #     )
 
         #     is_forex_currencies_file_available >> load_csv_task >> postgres_task >> insert_csv_task
-
-        
