@@ -44,7 +44,9 @@ RUN useradd -ms /bin/bash -d ${AIRFLOW_HOME} airflow && \
     pip install apache-airflow-providers-http==4.3.0 && \
     pip install apache-airflow-providers-postgres==5.4.0 && \
     pip install numpy==1.21.6 && \
-    pip install pandas==1.3.5
+    pip install pandas==1.3.5 && \
+    pip install google-api-python-client==1.12.11 && \
+    pip install google-auth-oauthlib==2.1.0
 
 # Copy the airflow.cfg file (config)
 #COPY ./config/airflow.cfg ${AIRFLOW_HOME}/airflow.cfg

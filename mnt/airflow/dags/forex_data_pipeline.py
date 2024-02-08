@@ -6,18 +6,24 @@ from airflow.operators.python import PythonOperator
 from airflow.providers.postgres.operators.postgres import PostgresOperator
 from airflow.hooks.base_hook import BaseHook
 from sqlalchemy import create_engine
-import pandas as pd
-
 from datetime import datetime, timedelta
 import csv
 import requests
 import json
+from googleapiclient.discovery import build
+from google.oauth2.credentials import Credentials
+import numpy as np
+import pandas as pd
+
+SPREADSHEET_ID = "1WwGBizOkkSdt6lqSXBv9x1CD1OqaTinrHLgoUQpvs88"
+WORKSHEET_ID = 1
+
+# Replace with the path to your service account JSON key file
+CREDENTIALS_FILE = "/cloudkarya-internship-1c013aa63f5f.json"
+
+
 
 # https://gist.github.com/
-
-import pandas as pd
-from sqlalchemy import create_engine
-
 def insert_csv_to_postgres(csv_file_path, table_name, postgres_conn_id):
     # Read the CSV file using pandas
     df = pd.read_csv(csv_file_path)
@@ -25,13 +31,10 @@ def insert_csv_to_postgres(csv_file_path, table_name, postgres_conn_id):
     # Fetch the PostgreSQL connection parameters from Airflow Connections
     conn_params = BaseHook.get_connection(postgres_conn_id)
     conn_url = f"postgresql+psycopg2://{conn_params.login}:{conn_params.password}@{conn_params.host}:{conn_params.port}/{conn_params.schema}"
-
     # Create a SQLAlchemy engine for PostgreSQL
     engine = create_engine(conn_url)
-
     # Insert the data into the PostgreSQL table
     df.to_sql(table_name, engine, if_exists='replace', index=False)
-
     return f"Data from {csv_file_path} inserted into {table_name}"
 
 
@@ -39,13 +42,10 @@ def insert_csv_to_postgres(csv_file_path, table_name, postgres_conn_id):
 def create_table_from_csv(csv_file_path, table_name):
     # Read the CSV file using pandas
     df = pd.read_csv(csv_file_path)
-
     # Analyze the data types of each column
     column_data_types = df.dtypes
-
     # Generate the CREATE TABLE statement
     create_table_query = f"CREATE TABLE {table_name} ("
-
     for column_name, data_type in column_data_types.items():
         # Assign the appropriate SQL data type based on pandas data types
         if data_type == 'int64':
@@ -54,15 +54,13 @@ def create_table_from_csv(csv_file_path, table_name):
             sql_data_type = 'REAL'
         else:
             sql_data_type = 'TEXT'
-
         create_table_query += f"{column_name} {sql_data_type}, "
-
     # Remove the trailing comma and space
     create_table_query = create_table_query.rstrip(', ') + ")"
     print(create_table_query)
-
     # Return a dictionary containing the SQL query
     return {"create_table_query": create_table_query}
+
 
 default_args = {
     "owner": "airflow",
@@ -134,6 +132,21 @@ with DAG("forex_data_pipeline",
 
 #--------------------------------------------------------------------------------------------------------------------------------------------
 
+def download_sheet_data():
+        # Authenticate with service account
+        scopes = ['https://www.googleapis.com/auth/spreadsheets.readonly']
+        credentials = ServiceAccountCredentials.from_json_keyfile_name(CREDENTIALS_FILE, scopes)
+        print("credentials",credentials)
+        service = build('sheets', 'v4', credentials=credentials)
+
+        # Read data from the specified sheet
+        sheet = service.spreadsheets().values().get(spreadsheetId=SPREADSHEET_ID
+                                                    , range=f'Sheet{WORKSHEET_ID}'
+                                                    ).execute()
+        data = sheet.get('values', [])
+        df = pd.DataFrame(data)
+        print(df.head())
+
 
 with DAG("forex_data_pipeline_for_email", 
             start_date = datetime(2021,1,1), 
@@ -141,50 +154,54 @@ with DAG("forex_data_pipeline_for_email",
             default_args = default_args,
             catchup = False,
             ) as dag:
-            
-            # is_forex_rates_available = HttpSensor(
-            #     task_id = "is_forex_rates_available",
-            #     http_conn_id = "forex_api",
-            #     endpoint="marclamberti/f45f872dea4dfd3eaa015a4a1af4b39b",
-            #     response_check = lambda response: "rates" in response.text,
-            #     poke_interval=5,
-            #     timeout=20
-            # )
 
-            is_forex_currencies_file_available = FileSensor(
-            task_id="is_forex_currencies_file_available",
-            fs_conn_id="forex_path",
-            filepath="CK_daily_status.csv",
-            poke_interval=5,
-            timeout=60  # Adjust the timeout as needed
-        )
-
-            load_csv_task = PythonOperator(
-            task_id="load_csv_to_postgres_task",
-            python_callable=create_table_from_csv,  # Pass the function name as a reference
-            op_kwargs={
-                "csv_file_path": "/opt/airflow/dags/files/CK_daily_status.csv",
-                "table_name": "CK_daily_status_table"
-            },
-            provide_context=True,  
-        )
-
-            postgres_task = PostgresOperator(
-            task_id='postgres_task',
-            sql="{{ task_instance.xcom_pull(task_ids='load_csv_to_postgres_task')['create_table_query'] }}",
-            postgres_conn_id='postgres_connection_id',
+        download_task = PythonOperator(
+            task_id='download_sheet_data',
+            python_callable=download_sheet_data
         )
 
 
-            insert_csv_task = PythonOperator(
-                task_id="insert_csv_to_postgres_task",
-                python_callable=insert_csv_to_postgres,
-                op_kwargs={
-                    "csv_file_path": "/opt/airflow/dags/files/CK_daily_status.csv",
-                    "table_name": "CK_daily_status_table",
-                    "postgres_conn_id": "postgres_connection_id",
-                },
-                provide_context=True,
-            )
+        download_task
 
-            is_forex_currencies_file_available >> load_csv_task >> postgres_task >> insert_csv_task
+    
+
+# -----------------------------------------------------------------------------------------------------------------------
+        #     is_forex_currencies_file_available = FileSensor(
+        #     task_id="is_forex_currencies_file_available",
+        #     fs_conn_id="forex_path",
+        #     filepath="CK_daily_status.csv",
+        #     poke_interval=5,
+        #     timeout=60  # Adjust the timeout as needed
+        # )
+
+        #     load_csv_task = PythonOperator(
+        #     task_id="load_csv_to_postgres_task",
+        #     python_callable=create_table_from_csv,  # Pass the function name as a reference
+        #     op_kwargs={
+        #         "csv_file_path": "/opt/airflow/dags/files/CK_daily_status.csv",
+        #         "table_name": "CK_daily_status_table"
+        #     },
+        #     provide_context=True,  
+        # )
+
+        #     postgres_task = PostgresOperator(
+        #     task_id='postgres_task',
+        #     sql="{{ task_instance.xcom_pull(task_ids='load_csv_to_postgres_task')['create_table_query'] }}",
+        #     postgres_conn_id='postgres_connection_id',
+        # )
+
+
+        #     insert_csv_task = PythonOperator(
+        #         task_id="insert_csv_to_postgres_task",
+        #         python_callable=insert_csv_to_postgres,
+        #         op_kwargs={
+        #             "csv_file_path": "/opt/airflow/dags/files/CK_daily_status.csv",
+        #             "table_name": "CK_daily_status_table",
+        #             "postgres_conn_id": "postgres_connection_id",
+        #         },
+        #         provide_context=True,
+        #     )
+
+        #     is_forex_currencies_file_available >> load_csv_task >> postgres_task >> insert_csv_task
+
+        
