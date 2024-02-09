@@ -2,6 +2,7 @@ from airflow import DAG
 from airflow.providers.http.sensors.http import HttpSensor
 from airflow.sensors.filesystem import FileSensor
 from airflow.operators.python import PythonOperator
+from airflow.operators.dummy import DummyOperator
 # from airflow.providers.postgres.operators.postgres_sql import PostgresSQLExecuteOperator
 from airflow.providers.postgres.operators.postgres import PostgresOperator
 from airflow.hooks.base_hook import BaseHook
@@ -22,7 +23,6 @@ WORKSHEET_ID = 1
 
 # Replace with the path to your service account JSON key file
 CREDENTIALS_FILE = "cloudkarya-internship-1c013aa63f5f.json"
-
 
 
 # https://gist.github.com/
@@ -172,58 +172,5 @@ def download_sheet_data():
     print(df.head())
     print(df.shape)
     print(df.isna().sum())
-
-
-with DAG("forex_data_pipeline_for_email", 
-            start_date = datetime(2021,1,1), 
-            schedule_interval="@daily",
-            default_args = default_args,
-            catchup = False,
-            ) as dag:
-
-        download_task = PythonOperator(
-            task_id='download_sheet_data',
-            python_callable=download_sheet_data
-        )
-
-        download_task
-    
-
-# -----------------------------------------------------------------------------------------------------------------------
-        #     is_forex_currencies_file_available = FileSensor(
-        #     task_id="is_forex_currencies_file_available",
-        #     fs_conn_id="forex_path",
-        #     filepath="CK_daily_status.csv",
-        #     poke_interval=5,
-        #     timeout=60  # Adjust the timeout as needed
-        # )
-
-        #     load_csv_task = PythonOperator(
-        #     task_id="load_csv_to_postgres_task",
-        #     python_callable=create_table_from_csv,  # Pass the function name as a reference
-        #     op_kwargs={
-        #         "csv_file_path": "/opt/airflow/dags/files/CK_daily_status.csv",
-        #         "table_name": "CK_daily_status_table"
-        #     },
-        #     provide_context=True,  
-        # )
-
-        #     postgres_task = PostgresOperator(
-        #     task_id='postgres_task',
-        #     sql="{{ task_instance.xcom_pull(task_ids='load_csv_to_postgres_task')['create_table_query'] }}",
-        #     postgres_conn_id='postgres_connection_id',
-        # )
-
-
-        #     insert_csv_task = PythonOperator(
-        #         task_id="insert_csv_to_postgres_task",
-        #         python_callable=insert_csv_to_postgres,
-        #         op_kwargs={
-        #             "csv_file_path": "/opt/airflow/dags/files/CK_daily_status.csv",
-        #             "table_name": "CK_daily_status_table",
-        #             "postgres_conn_id": "postgres_connection_id",
-        #         },
-        #         provide_context=True,
-        #     )
-
-        #     is_forex_currencies_file_available >> load_csv_task >> postgres_task >> insert_csv_task
+    df.fillna(0, inplace=True)
+    print(df.isna().sum())
