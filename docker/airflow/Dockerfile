@@ -1,6 +1,6 @@
 # Base Image
 FROM python:3.9
-LABEL maintainer="MarcLamberti"
+LABEL maintainer="Gautami"
 
 # Arguments that can be set with docker build
 ARG AIRFLOW_VERSION=2.6.0
@@ -53,7 +53,10 @@ RUN useradd -ms /bin/bash -d ${AIRFLOW_HOME} airflow && \
 #COPY ./config/airflow.cfg ${AIRFLOW_HOME}/airflow.cfg
 
 # Set the owner of the files in AIRFLOW_HOME to the user airflow
-RUN chown -R airflow: ${AIRFLOW_HOME}
+# RUN chmod +x ${AIRFLOW_HOME}  
+RUN chown -R airflow: ${AIRFLOW_HOME}  
+# changes above permissions
+# /opt/airflow/dags/files
 
 # Copy the entrypoint.sh from host to container (at path AIRFLOW_HOME)
 COPY ./start-airflow.sh ./start-airflow.sh
