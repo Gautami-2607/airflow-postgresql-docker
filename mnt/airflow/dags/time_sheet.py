@@ -1,8 +1,9 @@
-from airflow import DAG
+from airflow import DAG,settings
 from airflow.providers.postgres.operators.postgres import PostgresOperator
 from airflow.providers.http.sensors.http import HttpSensor
-from airflow.operators.dummy import DummyOperator
+from airflow.operators.python import PythonOperator
 from airflow.sensors.filesystem import FileSensor
+from airflow.operators.dummy import DummyOperator
 from airflow.models.connection import Connection
 from airflow.decorators import task
 from datetime import datetime, timedelta
@@ -10,11 +11,16 @@ import urllib.request
 import os
 import pandas as pd
 
-c = Connection(
-    conn_id = "http_sensor",
-    conn_type="http",
-    host="https://docs.google.com/spreadsheets/d/e/",
-)
+conn_data = [
+    {"conn_id":"http_sensor","conn_type":"http","host":"https://docs.google.com/spreadsheets/d/e/"},
+    {"conn_id":"csv_path","conn_type":"file","extra":'{"path": "/opt/airflow/"}',},
+    {"conn_id":"postgres_connection_id","conn_type":"postgres","host":"postgres","login":"airflow","password":"airflow","schema":"airflow_db","port":"5432"}
+]
+session = settings.Session()
+for conn_info in conn_data:
+    conn = Connection(**conn_info) 
+    session.add(conn)
+session.commit()
 
 LINK_TO_DOWNLOAD = "https://docs.google.com/spreadsheets/d/e/2PACX-1vQ59Q-NafCjOPNsIXLUqaPazXbZJvf9aPdD8W2CBpVAoSP-Eb0F92efvd2znIHFwRW7KelDcdx4ts9M/pub?gid=1304433456&single=true&output=csv"
 ENDPOINT = "2PACX-1vQ59Q-NafCjOPNsIXLUqaPazXbZJvf9aPdD8W2CBpVAoSP-Eb0F92efvd2znIHFwRW7KelDcdx4ts9M/pub?gid=1304433456&single=true&output=csv"
@@ -63,6 +69,7 @@ def download_file(task_id, uri, target_path):
     print(f"Downloaded {uri} to {target_path}")
             
 
+# DAG creation
 with DAG("weekly_time_sheet", 
             start_date = datetime(2024,1,1), 
             schedule_interval="@daily",
@@ -70,10 +77,8 @@ with DAG("weekly_time_sheet",
             catchup = False,
             ) as dag:
 
-
         start_process = DummyOperator(
             task_id = 'start_process',
-
         )
 
         put_http_sensor = HttpSensor(
@@ -81,7 +86,7 @@ with DAG("weekly_time_sheet",
             http_conn_id = 'http_sensor',
             endpoint = ENDPOINT ,
             poke_interval=5,
-            timeout=20
+            timeout=30
         )
 
         get_spreadsheet_data = download_file(
@@ -98,7 +103,17 @@ with DAG("weekly_time_sheet",
                 timeout=20
             )
 
-        load_data_to_postgres = DummyOperator(
+        load_csv_task = PythonOperator(
+            task_id="load_csv_to_postgres_task",
+            python_callable=create_table_from_csv,  # Pass the function name as a reference
+            op_kwargs={
+                "csv_file_path": "/opt/airflow/daily_report.csv",
+                "table_name": "daily_report_table"
+            },
+            provide_context=True,  
+        )    
+
+        load_data_to_postgres = PostgresOperator(
             task_id='load_data_to_postgres',
             sql="{{ task_instance.xcom_pull(task_ids='load_csv_to_postgres_task')['create_table_query'] }}",
             postgres_conn_id='postgres_connection_id',
@@ -129,7 +144,8 @@ with DAG("weekly_time_sheet",
             task_id = 'end_process',
         )
 
-        start_process >> put_http_sensor >> get_spreadsheet_data >> csv_file_available >> load_data_to_postgres 
+        start_process >> put_http_sensor >> get_spreadsheet_data >> csv_file_available
+        csv_file_available >> load_csv_task >> load_data_to_postgres 
         load_data_to_postgres >> sum_by_day >> group_by_date_and_person 
         group_by_date_and_person >> filter_by_week >> create_weekly_report
         create_weekly_report >> send_an_email >> end_process
