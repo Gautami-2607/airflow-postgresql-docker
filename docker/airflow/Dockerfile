@@ -54,7 +54,7 @@ RUN useradd -ms /bin/bash -d ${AIRFLOW_HOME} airflow && \
 
 # Set the owner of the files in AIRFLOW_HOME to the user airflow
 # RUN chmod +x ${AIRFLOW_HOME}  
-RUN chown -R airflow: ${AIRFLOW_HOME}  
+RUN chown -R airflow:airflow ${AIRFLOW_HOME}  
 # changes above permissions
 # /opt/airflow/dags/files
 
@@ -69,6 +69,7 @@ USER airflow
 
 # Create the folder dags inside $AIRFLOW_HOME
 RUN mkdir -p ${AIRFLOW_HOME}/dags
+# RUN chmod +x ${AIRFLOW_HOME}/dags
 
 # Expose ports (just to indicate that this container needs to map port)
 EXPOSE 8080
