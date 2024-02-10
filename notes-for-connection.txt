@@ -17,3 +17,7 @@ airflow connections add postgres_connection_id \
                     --conn-password=airflow \
                     --conn-schema=airflow_db
                     --conn-port=5432
+
+
+SELECT * FROM information_schema.columns WHERE table_name = 'daily_report_table';
+                    

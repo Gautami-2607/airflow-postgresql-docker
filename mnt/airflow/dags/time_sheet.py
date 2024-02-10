@@ -13,16 +13,16 @@ import urllib.request
 import pandas as pd
 import os
 
-conn_data = [
-    {"conn_id":"http_sensor","conn_type":"http","host":"https://docs.google.com/spreadsheets/d/e/"},
-    {"conn_id":"csv_path","conn_type":"file","extra":'{"path": "/opt/airflow/"}',},
-    {"conn_id":"postgres_connection_id","conn_type":"postgres","host":"postgres","login":"airflow","password":"airflow","schema":"airflow_db","port":"5432"}
-]
-session = settings.Session()
-for conn_info in conn_data:
-    conn = Connection(**conn_info) 
-    session.add(conn)
-session.commit()     
+# conn_data = [
+#     {"conn_id":"http_sensor","conn_type":"http","host":"https://docs.google.com/spreadsheets/d/e/"},
+#     {"conn_id":"csv_path","conn_type":"file","extra":'{"path": "/opt/airflow/"}',},
+#     {"conn_id":"postgres_connection_id","conn_type":"postgres","host":"postgres","login":"airflow","password":"airflow","schema":"airflow_db","port":"5432"}
+# ]
+# session = settings.Session()
+# for conn_info in conn_data:
+#     conn = Connection(**conn_info) 
+#     session.add(conn)
+# session.commit()     
 
 LINK_TO_DOWNLOAD = "https://docs.google.com/spreadsheets/d/e/2PACX-1vQ59Q-NafCjOPNsIXLUqaPazXbZJvf9aPdD8W2CBpVAoSP-Eb0F92efvd2znIHFwRW7KelDcdx4ts9M/pub?gid=1304433456&single=true&output=csv"
 ENDPOINT = "2PACX-1vQ59Q-NafCjOPNsIXLUqaPazXbZJvf9aPdD8W2CBpVAoSP-Eb0F92efvd2znIHFwRW7KelDcdx4ts9M/pub?gid=1304433456&single=true&output=csv"
@@ -71,6 +71,29 @@ def download_file(task_id, uri, target_path):
         with open(target_path+'/daily_report.csv', "wb") as new_file:
             new_file.write(file.read())
     print(f"Downloaded {uri} to {target_path}")
+
+
+@task
+def sum_by_week(postgres_conn_id):
+    conn_params = BaseHook.get_connection(postgres_conn_id)
+    conn_url = f"postgresql+psycopg2://{conn_params.login}:{conn_params.password}@{conn_params.host}:{conn_params.port}/{conn_params.schema}"
+    engine = create_engine(conn_url)
+    
+    sql = """
+    SELECT
+    "Email Address",
+    EXTRACT(YEAR FROM TO_DATE("Date", 'MM/DD/YYYY')) AS Years,
+    EXTRACT(WEEK FROM TO_DATE("Date", 'MM/DD/YYYY')) AS Week,
+    SUM(CAST(CASE WHEN "Hours Worked" NOT LIKE '%:%' AND "Hours Worked" NOT LIKE '%hrs%' AND "Hours Worked" NOT LIKE '%hr%' AND "Hours Worked" NOT LIKE '%mins%' AND "Hours Worked" NOT LIKE '%and%' AND "Hours Worked" NOT LIKE '%Hrs%' THEN CAST("Hours Worked" AS NUMERIC) ELSE 0 END AS NUMERIC)) AS Total_Hours_Worked
+    FROM daily_report_table
+    GROUP BY "Email Address", Years, Week
+    ORDER BY "Email Address", Years, Week;
+    """
+    result = engine.execute(sql)
+    processed_data = result.fetchall()
+    print(processed_data)
+    return processed_data
+
             
 
 # DAG creation
@@ -135,16 +158,16 @@ with DAG("weekly_time_sheet",
             )
 
         # --------------------------------------------------------
-        sum_by_day = DummyOperator(
-            task_id = 'sum_by_day',
-        )
+        # sum_by_day = DummyOperator(
+        #     task_id = 'sum_by_day',
+        # )
 
-        group_by_date_and_person = DummyOperator(
-            task_id = 'group_by_date_and_person',
-        )
+        # group_by_date_and_person = DummyOperator(
+        #     task_id = 'group_by_date_and_person',
+        # )
 
-        filter_by_week = DummyOperator(
-            task_id = 'filter_by_week',
+        filter_by_week = sum_by_week(
+            postgres_conn_id = 'postgres_connection_id',
         )
 
         create_weekly_report = DummyOperator(
@@ -161,7 +184,6 @@ with DAG("weekly_time_sheet",
 
         start_process >> put_http_sensor >> get_spreadsheet_data >> csv_file_available
         csv_file_available >> load_csv_task >> load_data_to_postgres 
-        load_data_to_postgres >> insert_csv_task >> sum_by_day >> group_by_date_and_person 
-        group_by_date_and_person >> filter_by_week >> create_weekly_report
+        load_data_to_postgres >> insert_csv_task >> filter_by_week >> create_weekly_report
         create_weekly_report >> send_an_email >> end_process
       
