@@ -7,7 +7,7 @@ from airflow.operators.dummy import DummyOperator
 from airflow.models.connection import Connection
 from airflow.hooks.base_hook import BaseHook
 from airflow.decorators import task
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text
 from datetime import datetime, timedelta
 import urllib.request
 import pandas as pd
@@ -80,19 +80,22 @@ def sum_by_week(postgres_conn_id):
     engine = create_engine(conn_url)
     
     sql = """
+    CREATE TABLE weekly_report_table AS
     SELECT
-    "Email Address",
-    EXTRACT(YEAR FROM TO_DATE("Date", 'MM/DD/YYYY')) AS Years,
-    EXTRACT(WEEK FROM TO_DATE("Date", 'MM/DD/YYYY')) AS Week,
-    SUM(CAST(CASE WHEN "Hours Worked" NOT LIKE '%:%' AND "Hours Worked" NOT LIKE '%hrs%' AND "Hours Worked" NOT LIKE '%hr%' AND "Hours Worked" NOT LIKE '%mins%' AND "Hours Worked" NOT LIKE '%and%' AND "Hours Worked" NOT LIKE '%Hrs%' THEN CAST("Hours Worked" AS NUMERIC) ELSE 0 END AS NUMERIC)) AS Total_Hours_Worked
+        "Email Address",
+        EXTRACT(YEAR FROM TO_DATE("Date", 'MM/DD/YYYY')) AS Years,
+        EXTRACT(WEEK FROM TO_DATE("Date", 'MM/DD/YYYY')) AS Week,
+        SUM(CAST(CASE WHEN "Hours Worked" NOT LIKE '%:%' AND "Hours Worked" NOT LIKE '%hrs%' AND "Hours Worked" NOT LIKE '%hr%' AND "Hours Worked" NOT LIKE '%mins%' AND "Hours Worked" NOT LIKE '%and%' AND "Hours Worked" NOT LIKE '%Hrs%' THEN CAST("Hours Worked" AS NUMERIC) ELSE 0 END AS NUMERIC)) AS Total_Hours_Worked
     FROM daily_report_table
+
+    WHERE TO_DATE("Date", 'MM/DD/YYYY') >= CURRENT_DATE - CAST(EXTRACT(DOW FROM CURRENT_DATE) AS INTEGER) - 6
+    AND TO_DATE("Date", 'MM/DD/YYYY') <= CURRENT_DATE - CAST(EXTRACT(DOW FROM CURRENT_DATE) AS INTEGER)
+
     GROUP BY "Email Address", Years, Week
     ORDER BY "Email Address", Years, Week;
     """
-    result = engine.execute(sql)
-    processed_data = result.fetchall()
-    print(processed_data)
-    return processed_data
+    engine.execute(text(sql))
+    print("Weekly report table created successfully!")
 
             
 
@@ -157,18 +160,12 @@ with DAG("weekly_time_sheet",
                 provide_context=True,
             )
 
-        # --------------------------------------------------------
-        # sum_by_day = DummyOperator(
-        #     task_id = 'sum_by_day',
-        # )
-
-        # group_by_date_and_person = DummyOperator(
-        #     task_id = 'group_by_date_and_person',
-        # )
 
         filter_by_week = sum_by_week(
             postgres_conn_id = 'postgres_connection_id',
         )
+
+        # -------------------------------------------------------------------------------------
 
         create_weekly_report = DummyOperator(
             task_id = 'create_weekly_report',
