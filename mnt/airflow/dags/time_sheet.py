@@ -5,11 +5,13 @@ from airflow.operators.python import PythonOperator
 from airflow.sensors.filesystem import FileSensor
 from airflow.operators.dummy import DummyOperator
 from airflow.models.connection import Connection
+from airflow.hooks.base_hook import BaseHook
 from airflow.decorators import task
+from sqlalchemy import create_engine
 from datetime import datetime, timedelta
 import urllib.request
-import os
 import pandas as pd
+import os
 
 conn_data = [
     {"conn_id":"http_sensor","conn_type":"http","host":"https://docs.google.com/spreadsheets/d/e/"},
@@ -20,7 +22,7 @@ session = settings.Session()
 for conn_info in conn_data:
     conn = Connection(**conn_info) 
     session.add(conn)
-session.commit()
+session.commit()     
 
 LINK_TO_DOWNLOAD = "https://docs.google.com/spreadsheets/d/e/2PACX-1vQ59Q-NafCjOPNsIXLUqaPazXbZJvf9aPdD8W2CBpVAoSP-Eb0F92efvd2znIHFwRW7KelDcdx4ts9M/pub?gid=1304433456&single=true&output=csv"
 ENDPOINT = "2PACX-1vQ59Q-NafCjOPNsIXLUqaPazXbZJvf9aPdD8W2CBpVAoSP-Eb0F92efvd2znIHFwRW7KelDcdx4ts9M/pub?gid=1304433456&single=true&output=csv"
@@ -37,6 +39,7 @@ default_args = {
 
 def insert_csv_to_postgres(csv_file_path, table_name, postgres_conn_id):
     df = pd.read_csv(csv_file_path)
+    print(df.head())
     conn_params = BaseHook.get_connection(postgres_conn_id)
     conn_url = f"postgresql+psycopg2://{conn_params.login}:{conn_params.password}@{conn_params.host}:{conn_params.port}/{conn_params.schema}"
     engine = create_engine(conn_url)
@@ -46,16 +49,17 @@ def insert_csv_to_postgres(csv_file_path, table_name, postgres_conn_id):
 
 def create_table_from_csv(csv_file_path, table_name):
     df = pd.read_csv(csv_file_path)
-    column_data_types = df.dtypes
+    column_data_types = df.dtypes[:-1]
+    print(column_data_types)
     create_table_query = f"CREATE TABLE {table_name} ("
     for column_name, data_type in column_data_types.items():
         if data_type == 'int64':
-            sql_data_type = 'INTEGER'
+            sql_data_type = "INTEGER"
         elif data_type == 'float64':
-            sql_data_type = 'REAL'
+            sql_data_type = "REAL"
         else:
-            sql_data_type = 'TEXT'
-        create_table_query += f"{column_name} {sql_data_type}, "
+            sql_data_type = "TEXT"
+        create_table_query += f"{column_name.replace(' ', '_').replace('.','_')} {sql_data_type}, "
     create_table_query = create_table_query.rstrip(', ') + ")"
     print(create_table_query)
     return {"create_table_query": create_table_query}
@@ -108,7 +112,7 @@ with DAG("weekly_time_sheet",
             python_callable=create_table_from_csv,  # Pass the function name as a reference
             op_kwargs={
                 "csv_file_path": "/opt/airflow/daily_report.csv",
-                "table_name": "daily_report_table"
+                "table_name": "daily_report_table",
             },
             provide_context=True,  
         )    
@@ -118,6 +122,17 @@ with DAG("weekly_time_sheet",
             sql="{{ task_instance.xcom_pull(task_ids='load_csv_to_postgres_task')['create_table_query'] }}",
             postgres_conn_id='postgres_connection_id',
         )
+
+        insert_csv_task = PythonOperator(
+                task_id="insert_csv_to_postgres_task",
+                python_callable=insert_csv_to_postgres,
+                op_kwargs={
+                    "csv_file_path": "/opt/airflow/daily_report.csv",
+                    "table_name": "daily_report_table",
+                    "postgres_conn_id": "postgres_connection_id",
+                },
+                provide_context=True,
+            )
 
         # --------------------------------------------------------
         sum_by_day = DummyOperator(
@@ -146,6 +161,7 @@ with DAG("weekly_time_sheet",
 
         start_process >> put_http_sensor >> get_spreadsheet_data >> csv_file_available
         csv_file_available >> load_csv_task >> load_data_to_postgres 
-        load_data_to_postgres >> sum_by_day >> group_by_date_and_person 
+        load_data_to_postgres >> insert_csv_task >> sum_by_day >> group_by_date_and_person 
         group_by_date_and_person >> filter_by_week >> create_weekly_report
         create_weekly_report >> send_an_email >> end_process
+      

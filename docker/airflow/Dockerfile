@@ -1,6 +1,6 @@
 # Base Image
 FROM python:3.9
-LABEL maintainer="Gautami"
+LABEL maintainer="MarcLamberti"
 
 # Arguments that can be set with docker build
 ARG AIRFLOW_VERSION=2.6.0
@@ -54,7 +54,7 @@ RUN useradd -ms /bin/bash -d ${AIRFLOW_HOME} airflow && \
 
 # Set the owner of the files in AIRFLOW_HOME to the user airflow
 # RUN chmod +x ${AIRFLOW_HOME}  
-RUN chown -R airflow:airflow ${AIRFLOW_HOME}  
+RUN chown -R airflow: ${AIRFLOW_HOME}  
 # changes above permissions
 # /opt/airflow/dags/files
 
