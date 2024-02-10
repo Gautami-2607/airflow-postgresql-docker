@@ -4,6 +4,7 @@ from airflow.providers.http.sensors.http import HttpSensor
 from airflow.operators.python import PythonOperator
 from airflow.sensors.filesystem import FileSensor
 from airflow.operators.dummy import DummyOperator
+from airflow.operators.email import EmailOperator
 from airflow.models.connection import Connection
 from airflow.hooks.base_hook import BaseHook
 from airflow.decorators import task
@@ -26,6 +27,17 @@ import os
 
 LINK_TO_DOWNLOAD = "https://docs.google.com/spreadsheets/d/e/2PACX-1vQ59Q-NafCjOPNsIXLUqaPazXbZJvf9aPdD8W2CBpVAoSP-Eb0F92efvd2znIHFwRW7KelDcdx4ts9M/pub?gid=1304433456&single=true&output=csv"
 ENDPOINT = "2PACX-1vQ59Q-NafCjOPNsIXLUqaPazXbZJvf9aPdD8W2CBpVAoSP-Eb0F92efvd2znIHFwRW7KelDcdx4ts9M/pub?gid=1304433456&single=true&output=csv"
+
+email_recipient = "spreadsheet@yopmail.com"
+email_subject = "Weekly Report Generation"
+email_body = """
+<html>
+<body>
+    <h1>Your HTML Email Content</h1>
+    <p>This is an example of sending an email with HTML content in Airflow.</p>
+</body>
+</html>
+"""
 
 default_args = {
     "owner": "airflow",
@@ -63,6 +75,14 @@ def create_table_from_csv(csv_file_path, table_name):
     create_table_query = create_table_query.rstrip(', ') + ")"
     print(create_table_query)
     return {"create_table_query": create_table_query}
+
+
+def extract_data(table_name, postgres_conn_id):
+    conn_params = BaseHook.get_connection(postgres_conn_id)
+    conn_url = f"postgresql+psycopg2://{conn_params.login}:{conn_params.password}@{conn_params.host}:{conn_params.port}/{conn_params.schema}"
+    sql = f"SELECT * FROM {table_name}"
+    df = pd.read_sql(sql, conn_url)
+    print(df)
 
 
 @task
@@ -165,22 +185,34 @@ with DAG("weekly_time_sheet",
             postgres_conn_id = 'postgres_connection_id',
         )
 
+        weekly_report_in_container = PythonOperator(
+            task_id="weekly_report_in_container",
+            python_callable=extract_data,
+            op_kwargs={
+                    "table_name": "weekly_report_table",
+                    "postgres_conn_id": "postgres_connection_id",
+                },
+            provide_context=True,
+        )
+
         # -------------------------------------------------------------------------------------
 
-        create_weekly_report = DummyOperator(
-            task_id = 'create_weekly_report',
+        send_an_email = EmailOperator(
+            task_id="send_an_email",
+            to=email_recipient,
+            subject=email_subject,
+            html_content=email_body,
+            # conn_id="email_conn_id", 
         )
 
-        send_an_email = DummyOperator(
-            task_id = 'send_an_email',
-        )
 
         end_process = DummyOperator(
             task_id = 'end_process',
         )
 
+
         start_process >> put_http_sensor >> get_spreadsheet_data >> csv_file_available
         csv_file_available >> load_csv_task >> load_data_to_postgres 
-        load_data_to_postgres >> insert_csv_task >> filter_by_week >> create_weekly_report
-        create_weekly_report >> send_an_email >> end_process
+        load_data_to_postgres >> insert_csv_task >> filter_by_week >> weekly_report_in_container
+        weekly_report_in_container >> send_an_email >> end_process
       
