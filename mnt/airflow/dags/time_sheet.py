@@ -117,7 +117,29 @@ def sum_by_week(postgres_conn_id):
     engine.execute(text(sql))
     print("Weekly report table created successfully!")
 
-            
+
+@task
+def sum_by_month(postgres_conn_id):
+    conn_params = BaseHook.get_connection(postgres_conn_id)
+    conn_url = f"postgresql+psycopg2://{conn_params.login}:{conn_params.password}@{conn_params.host}:{conn_params.port}/{conn_params.schema}"
+    engine = create_engine(conn_url)
+    
+    sql = """
+    CREATE TABLE monthly_report_table AS
+    SELECT
+        "Email Address",
+        EXTRACT(YEAR FROM TO_DATE("Date", 'MM/DD/YYYY')) AS Years,
+        EXTRACT(MONTH FROM TO_DATE("Date", 'MM/DD/YYYY')) AS Month,
+        SUM(CAST(CASE WHEN "Hours Worked" NOT LIKE '%:%' AND "Hours Worked" NOT LIKE '%hrs%' AND "Hours Worked" NOT LIKE '%hr%' AND "Hours Worked" NOT LIKE '%mins%' AND "Hours Worked" NOT LIKE '%and%' AND "Hours Worked" NOT LIKE '%Hrs%' THEN CAST("Hours Worked" AS NUMERIC) ELSE 0 END AS NUMERIC)) AS Total_Hours_Worked
+    FROM daily_report_table
+    WHERE TO_DATE("Date", 'MM/DD/YYYY') >= DATE_TRUNC('month', CURRENT_DATE - INTERVAL '1 month')
+        AND TO_DATE("Date", 'MM/DD/YYYY') < CURRENT_DATE
+    GROUP BY "Email Address", Years, Month
+    ORDER BY "Email Address", Years, Month;
+    """
+    engine.execute(text(sql))
+    print("Weekly report table created successfully!")
+
 
 # DAG creation
 with DAG("weekly_time_sheet", 
@@ -185,6 +207,7 @@ with DAG("weekly_time_sheet",
             postgres_conn_id = 'postgres_connection_id',
         )
 
+
         weekly_report_in_container = PythonOperator(
             task_id="weekly_report_in_container",
             python_callable=extract_data,
@@ -194,6 +217,22 @@ with DAG("weekly_time_sheet",
                 },
             provide_context=True,
         )
+
+
+        filter_by_month = sum_by_month(
+            postgres_conn_id = 'postgres_connection_id',
+        )
+
+        monthly_report_in_container = PythonOperator(
+            task_id="monthly_report_in_container",
+            python_callable=extract_data,
+            op_kwargs={
+                    "table_name": "monthly_report_table",
+                    "postgres_conn_id": "postgres_connection_id",
+                },
+            provide_context=True,
+        )
+
 
         # -------------------------------------------------------------------------------------
 
@@ -214,5 +253,6 @@ with DAG("weekly_time_sheet",
         start_process >> put_http_sensor >> get_spreadsheet_data >> csv_file_available
         csv_file_available >> load_csv_task >> load_data_to_postgres 
         load_data_to_postgres >> insert_csv_task >> filter_by_week >> weekly_report_in_container
-        weekly_report_in_container >> send_an_email >> end_process
+        weekly_report_in_container >> filter_by_month
+        filter_by_month>> monthly_report_in_container >> send_an_email >> end_process
       
