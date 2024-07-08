@@ -1,16 +1,17 @@
+# Working
 import requests
 from requests.auth import HTTPBasicAuth
-# from graphlib2 import TopologicalSorter        
+from graphlib2 import TopologicalSorter        
 from airflow.utils.log.logging_mixin import LoggingMixin
 from airflow.models import BaseOperator
 from airflow import DAG
-import importlib, sys
-from datetime import datetime, timedelta
+import importlib,sys
+from datetime import datetime,timedelta
 import re
 import os
 
 requests.packages.urllib3.disable_warnings()
-
+ 
 class GetAirflowTasks:
     
     session = None
@@ -18,52 +19,62 @@ class GetAirflowTasks:
     host = None
     host_name = None
     
-    # def __init__(self):
-    #     self.host = os.environ.get("AIRFLOW_WEBSERVER_URL", 'https://8080-gautami2607-airflowpost-fhlp55tx20r.ws-us115.gitpod.io')
-    #     self.username = os.environ.get("AIRFLOW_USERNAME", 'airflow')
-    #     self.password = os.environ.get("AIRFLOW_PASSWORD", 'airflow')
-        
-    #     self.host_name = self.host
-    #     print("In Constructor and host name is: ", self.host_name)
-    #     LoggingMixin().log.debug('Webserver Host IP ::{}'.format(self.host_name))
-    #     self.auth = HTTPBasicAuth(self.username, self.password)
-        
     def __init__(self):
+
         self.host = os.environ.get("AIRFLOW_WEBSERVER_URL", 'https://8080-gautami2607-airflowpost-fhlp55tx20r.ws-us115.gitpod.io')
         self.username = os.environ.get("AIRFLOW_USERNAME", 'airflow')
         self.password = os.environ.get("AIRFLOW_PASSWORD", 'airflow')
-        self.host_name = self.host
+
         self.auth = HTTPBasicAuth(self.username, self.password)
+        self.session = requests.Session()
+        self.session.auth = self.auth
 
-    def handle_request_exception(self, e):
-        if isinstance(e, requests.exceptions.HTTPError) and e.response.status_code == 401:
-            LoggingMixin().log.error("Unauthorized access. Check username and password.")
-        else:
-            LoggingMixin().log.error("Exception occurred: %s", e)
+        headers = {
+            "Origin": "*",
+            "Content-Type": "application/json",
+            "Accept": "application/json"
+        }
+        self.session.headers.update(headers)
+        self.host_name = self.host
+        print("In Constructor and host name is: ", self.host_name)
+        LoggingMixin().log.debug('Webserver Host IP ::{}'.format(self.host_name))
 
-    def get_dags_count(self):
-        total_count = 0
+        
+    def _get_tasks_for_dag(self, dag_id):
+        """Get Tasks for a given Airflow DAG
+        Args:
+            dag_name (str): DAG ID
+        Returns:
+            string: JSON Object with tasks associated to the DAG
+        """
+        output = None
         try:
-            url_name = "https://8080-gautami2607-airflowpost-fhlp55tx20r.ws-us115.gitpod.io"
-            res = requests.get(url_name + '/api/v1/dags', auth=self.auth)
-            res.raise_for_status()
+            uri = self.host_name + '/api/v1/dags/'+ dag_id+'/tasks'
+            print(uri)
+            res = requests.get(uri, auth=self.auth)
+            print("res", res)
             output = res.json()
-            if 'total_entries' in output:
-                total_count = output['total_entries']                
-            LoggingMixin().log.info('Total DAGS count get_dags_count() = {}'.format(total_count))            
-        except requests.exceptions.RequestException as e:
-            self.handle_request_exception(e)
-        return total_count
-
+            print("output", output)
+            #LoggingMixin().log.info("Fetched response for _get_tasks_for_dag() %s", output)
+        except Exception as e:
+            LoggingMixin().log.error("Exception while fetching _get_tasks_for_dag() %s for dag_id %s", e, dag_id)
+        return output
+    
     def get_dags_list(self):
+        """
+        Get All DAGS List
+        Returns:
+            string array: List of all DAGS present in airflow
+        """
         dags_list = []
         offset = 0
         limit = 100
         try:
             total_count = self.get_dags_count()
-            while offset < total_count:
-                res = requests.get(self.host_name + f'/api/v1/dags?offset={offset}&limit={limit}', auth=self.auth)
-                res.raise_for_status()
+            while (offset < total_count):
+                # url_name = "https://8080-gautami2607-airflowpost-fhlp55tx20r.ws-us115.gitpod.io"
+                res = requests.get(self.host_name + '/api/v1/dags?offset={}'.format(offset), auth=self.auth)
+                # res = requests.get(url_name + '/api/v1/dags?offset={}'.format(offset), auth=self.auth)
                 output = res.json()
                 if 'dags' in output:
                     dags = output['dags']
@@ -71,74 +82,65 @@ class GetAirflowTasks:
                         dags_list.append(dag['dag_id'])
                 offset = offset + limit
             LoggingMixin().log.info('Total DAGS count get_dags_list() = {}'.format(len(dags_list)))            
-        except requests.exceptions.RequestException as e:
-            self.handle_request_exception(e)
+        except Exception as e:
+            LoggingMixin().log.error("Exception while fetching _get_dags_list() %s", e)
         return dags_list
-
-    def _get_tasks_for_dag(self, dag_id):
-        output = None
-        try:
-            res = requests.get(self.host_name + f'/api/v1/dags/{dag_id}/tasks', auth=self.auth)
-            res.raise_for_status()  # Raises an HTTPError if the HTTP request returned an unsuccessful status code
-            output = res.json()
-            LoggingMixin().log.info("Fetched response for _get_tasks_for_dag() %s", output)
-        except requests.exceptions.RequestException as e:
-            LoggingMixin().log.error("Exception while fetching _get_tasks_for_dag() %s for dag_id %s", e, dag_id)
-        return output
-    
-    # def get_dags_list(self):
-    #     dags_list = []
-    #     offset = 0
-    #     limit = 100
-    #     try:
-    #         total_count = self.get_dags_count()
-    #         while offset < total_count:
-    #             res = requests.get(self.host_name + f'/api/v1/dags?offset={offset}&limit={limit}', auth=self.auth)
-    #             res.raise_for_status()
-    #             output = res.json()
-    #             if 'dags' in output:
-    #                 dags = output['dags']
-    #                 for dag in dags:
-    #                     dags_list.append(dag['dag_id'])
-    #             offset = offset + limit
-    #         LoggingMixin().log.info('Total DAGS count get_dags_list() = {}'.format(len(dags_list)))            
-    #     except requests.exceptions.RequestException as e:
-    #         LoggingMixin().log.error("Exception while fetching get_dags_list() %s", e)
-    #     return dags_list
     
     def get_dags_count(self):
+        """
+        Get DAGS Count
+        Returns:
+            int: Count of DAGS on the Airflow Instance
+        """
         total_count = 0
         try:
             res = requests.get(self.host_name + '/api/v1/dags', auth=self.auth)
-            res.raise_for_status()
             output = res.json()
             if 'total_entries' in output:
                 total_count = output['total_entries']                
             LoggingMixin().log.info('Total DAGS count get_dags_count() = {}'.format(total_count))            
-        except requests.exceptions.RequestException as e:
+        except Exception as e:
             LoggingMixin().log.error("Exception while fetching get_dags_count() %s", e)
         return total_count
     
     def get_variables(self):
+        """
+        Get Airflow Variables
+        Returns:
+            string array: List of all variables present in airflow
+        """
         var_list = []
         try:
             res = requests.get(self.host_name + '/api/v1/variables', auth=self.auth)
-            res.raise_for_status()
             output = res.json()
             if 'variables' in output:
                 variables = output['variables']
                 for var in variables:
-                    var_list.append({var['key']: var['value']})
-            LoggingMixin().log.info('Total Variables count = {}'.format(len(var_list)))
-        except requests.exceptions.RequestException as e:
+                    var_list.append({var['key'] : var['value']})
+            #LoggingMixin().log.info('Total Variables count = {}'.format(len(var_list)))
+        except Exception as e:
             LoggingMixin().log.error("Exception while fetching get_variables() %s", e)
         return var_list
     
     def process_tasks_response(self, dag):
+        """Get the tasks order from the DAG
+        Args:
+            dag (str): DAG ID
+        Returns:
+            list: List of task id's in the sequential order from the dag
+        """
         output = self._get_tasks_for_dag(dag_id=dag)
         return output
     
+    # My comment
     def get_dag_tasks_list(self, dag):
+        """Get the tasks list from the DAG
+        Args:
+            dag (str): DAG ID
+        Returns:
+            list: List of task id's in the sequential order from the dag
+        """
+        
         output = self._get_tasks_for_dag(dag)
         dt = {}
         if output:
@@ -153,15 +155,194 @@ class GetAirflowTasks:
             return []
         
     def get_dag_path_info(self, dag_id):
+        """Get DAG Basic Info
+        Args:
+            dag_name (str): DAG ID
+        Returns:
+            string: JSON Object with tasks associated to the DAG
+        """
         output = None
         try:
-            res = requests.get(self.host_name + f'/api/v1/dags/{dag_id}', auth=self.auth)
-            res.raise_for_status()
-            output = res.json()
-        except requests.exceptions.RequestException as e:
+            res = requests.get(self.host_name + '/api/v1/dags/'+dag_id+'', auth = self.auth)
+            output = res.json()          
+        except Exception as e:
             LoggingMixin().log.error("Exception while fetching get_dag_path_info() %s", e)
         return output
-       
+            
+    def __get_dag_details(self, dag_id):
+        """Get DAG Basic Info
+        Args:
+            dag_name (str): DAG ID
+        Returns:
+            string: JSON Object with tasks associated to the DAG
+        """
+        output = None
+        try:
+            res = requests.get(self.host_name + '/api/v1/dags/'+dag_id+'/details', auth = self.auth)
+            output = res.json()          
+        except Exception as e:
+            LoggingMixin().log.error("Exception while fetching get_dag_path_info() %s", e)
+        return output
+
+    def get_dag_source_code(self, dag_id, file_token):
+        """Get DAG Source Code
+        Args:
+            dag_name (str): DAG ID
+            file_token (str): File Token
+        Returns:
+            string: JSON Object with tasks associated to the DAG
+        """
+        output = None
+        try:
+            res = requests.get(self.host_name + '/api/v1/dagSources/' +file_token, auth = self.auth)
+            output = res.text            
+        except Exception as e:
+            LoggingMixin().log.error("Exception while fetching _get_dag_source_code() %s for dag_id=%s", e, dag_id)
+        return output   
+
+        
+    def __get_attribute(self, dagId, variable):
+        try:
+            #print(variable)
+            mod = __import__('dags.'+dagId, fromlist=[variable])
+            att = getattr(mod, variable)
+            return att
+        except Exception as e:
+            LoggingMixin().log.error("Exception while fetching __get_attribute() %s", e)
+        return None
+
+    def __get_task_names_dict(self, dagId):
+        try:
+            mod = __import__('dags.'+dagId, fromlist=[''])
+            key_list = list(mod.__dict__.keys())
+            values_list = list(mod.__dict__.values())
+            task_dict = {}
+            for k in values_list:
+                if(isinstance(k, BaseOperator)):
+                    index = values_list.index(k)
+                    task_dict[k.task_id] = key_list[index]
+            return task_dict
+        except Exception as e:
+            LoggingMixin().log.error("Exception while fetching __get_task_names_dict() %s for dag_id %s", e, dagId)
+        return None
+        
+    def get_commands(self, dag_id):
+        tasks_dict = {}
+        try:
+            tasks_list = self.get_dag_tasks_list(dag_id)
+            tasks_dict = self.__get_task_names_dict(dag_id)
+            for task_id in tasks_list:
+                task_name = tasks_dict[task_id]
+                try:
+                    att = self.__get_attribute(dag_id, task_name)
+                    tasks_dict[task_id] = att
+                    # if(isinstance(att, BashOperator)):
+                    #     task_cmd = att.bash_command
+                    # elif(isinstance(att, BranchPythonOperator) or isinstance(att, PythonOperator)):
+                    #     task_cmd = att.python_callable
+                    # tasks_dict[task_id] = task_cmd#task_cmd#{ 'cmd': task_cmd, 'do_xcom_push': 'False' if 'do_xcom_push' not in att else att.do_xcom_push}
+                except Exception as e:
+                    LoggingMixin().log.info("Could not find bash_command for the task :: {} is {}".format(task_id, e))
+        except Exception as e:
+            LoggingMixin().log.error("Exception while fetching get_commands() %s", e)
+        return tasks_dict
+    
+    def get_commands_using_exec(self, dag_id):
+        tasks_dict = {}
+        try:
+            dag_info = self.get_dag_path_info(dag_id=dag_id)
+            
+            source_code = self.get_dag_source_code(dag_id, dag_info['file_token'])
+            # global dag
+            # exec(source_code, globals())
+            dag = None
+            name = 'dag_module'
+            spec = importlib.util.spec_from_loader(name, loader=None)
+            module = importlib.util.module_from_spec(spec)
+            
+            # exec() function is used for the dynamic execution of Python program which can either be a string or object code
+            exec(source_code, module.__dict__)
+            sys.modules[name] = module
+            globals()[name] = module
+            
+            values_list = list(module.__dict__.values())
+            for k in values_list:
+                if isinstance(k, DAG):
+                    dag = k
+                    if dag_id == dag.dag_id:
+                        # for task in k.tasks:
+                        #     print(task.template_fields)
+                        for task in dag.tasks:
+                            try:
+                                task_id = task.task_id
+                                tasks_dict[task_id] = task
+                            except Exception as e:
+                                LoggingMixin().log.info("Exception while assigning the tasks_dict :: {} is {}".format(task_id, e))
+                    
+        except Exception as e:
+            LoggingMixin().log.error("Exception while fetching get_commands_using_exec() %s", e)
+        return tasks_dict
+
+    
+    def get_dag_file_class_path(self, dag_id):
+        final_class_path = None
+        try:
+            dag_info = self.get_dag_path_info(dag_id=dag_id)
+                
+            dag_file_path = dag_info['fileloc']
+                
+            arr = dag_file_path.split(sep='/airflow/', maxsplit=-1)
+            final_class_path = arr[-1].replace('.py', '').replace('/', '.')
+        
+        except Exception as e:
+            LoggingMixin().log.error("Exception while fetching get_dag_file_class_path() %s for dag_id %s", e, dag_id)
+        return final_class_path
+    
+    
+    def get_all_connections(self):
+        conn_list = []
+        try:
+            res = requests.get(self.host_name + '/api/v1/connections', auth=self.auth)
+            output = res.json()
+            if 'connections' in output:
+                conn_list = output['connections']
+                
+        except Exception as e:
+            LoggingMixin().log.error("Exception while fetching get_all_connections() %s ", e)
+        return conn_list
+    
+    def get_connection(self, conn_id):
+        output = None
+        try:
+            res = requests.get(self.host_name + '/api/v1/connections/'+conn_id, auth=self.auth)
+            if res:
+                output = res.json()
+        except Exception as e:
+            LoggingMixin().log.error("Exception while fetching get_connection() %s for conn_id %s", e, conn_id)
+        return output
+
+    def get_schedule(self,dag_id):
+        try:
+            dag_info:dict = self.__get_dag_details(dag_id=dag_id)
+            schedule_interval_dict:dict = dag_info.get("schedule_interval",None)
+            schedule_interval=schedule_interval_dict.get("value",None) if schedule_interval_dict else None
+            start_date = dag_info.get("start_date",None)
+            if start_date:
+                start_date_control_m = datetime.fromisoformat(start_date).strftime("%Y%m%d")
+            else:
+                start_date_control_m = None
+            end_date = dag_info.get("end_date",None)
+            if end_date:
+                end_date_control_m = datetime.fromisoformat(end_date).strftime("%Y%m%d")
+            else:
+                end_date_control_m = (datetime.fromisoformat(start_date) + timedelta(days=4)).strftime("%Y%m%d") if start_date else None
+            
+            return schedule_interval,start_date_control_m,end_date_control_m
+        except Exception as e:
+            LoggingMixin().log.error("Exception while fetching get_schedule() %s for dag_id %s", e, dag_id)
+
+
 get_airflow_tasks = GetAirflowTasks()
-print(get_airflow_tasks.get_dags_count())
-print(get_airflow_tasks.get_dags_list())
+get_airflow_tasks.get_dags_list()
+get_airflow_tasks.get_all_connections()
+# get_airflow_tasks._get_tasks_for_dag("forex_data_pipeline")
